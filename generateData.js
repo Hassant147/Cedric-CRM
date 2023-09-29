@@ -103,7 +103,7 @@ const generateRandomRecipe = () => {
 
 
 // Import the Recipe model
-const Recipe = require('./models/Recipe'); // Adjust the path if needed
+const Recipe = require('./models/Recipe').default; // Adjust the path if needed
 
 mongoose.connect('mongodb://localhost:27017/cedric-crm', {
         useNewUrlParser: true,

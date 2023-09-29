@@ -1,141 +1,137 @@
-// Import necessary modules from the Node.js and Express libraries.
 const express = require('express');
-// Import the Recipe model that interacts with the MongoDB recipes collection.
 const Recipe = require('../models/Recipe');
+const { Op } = require('sequelize');
 
-// Initialize an Express router to handle API endpoints.
 const router = express.Router();
 
-// Define an endpoint to retrieve all recipes.
-// This endpoint supports filtering by foodPreference, recipeType, and search term in the title.
-// Additionally, it supports pagination with default values for the page and limit.
+// Fetch all recipes with optional filtering, sorting, and pagination
 router.get('/', async(req, res) => {
+    
     try {
-        const { foodPreference, recipeType, search, page = 1, limit = 10, sortField, sortDirection } = req.query;
+        const { search, limit, offset, sortField, sortDirection, foodpreference, tags } = req.query;
 
-        const matchQuery = {};
-        if (foodPreference) matchQuery.foodPreference = foodPreference;
-        if (recipeType) matchQuery.recipeType = recipeType;
-        if (search) {
-            matchQuery.$or = [
-                { title: { $regex: search, $options: 'i' } },
-                { "ingredients.name": { $regex: search, $options: 'i' } }
-            ];
-        }
-        let sortQuery = {};
-        if (sortField) {
-            if (sortField === 'calories') {
-                sortQuery.totalCalories = sortDirection === 'desc' ? -1 : 1;
-            } else {
-                sortQuery[sortField] = sortDirection === 'desc' ? -1 : 1;
-            }
-        }
+    // Parse limit and offset to integers
+    const parsedLimit = parseInt(limit, 10);
+    const parsedOffset = parseInt(offset, 10);
 
-        const aggregationPipeline = [
-            { $match: matchQuery },
-            {
-                $addFields: {
-                    totalCalories: { $sum: "$ingredients.kcal" }
-                }
-            },
-            { $sort: sortQuery },
-            { $skip: (page - 1) * limit },
-            { $limit: limit * 1 }
-        ];
-
-        const recipes = await Recipe.aggregate(aggregationPipeline);
-
-        const totalRecipes = await Recipe.countDocuments(matchQuery);
-
-        res.json({ data: recipes, total: totalRecipes });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
+    // Check if they are valid numbers, otherwise set default values
+    const finalLimit = isNaN(parsedLimit) ? 10 : parsedLimit;  // default to 10 if not a valid number
+    const finalOffset = isNaN(parsedOffset) ? 0 : parsedOffset;  // default to 0 if not a valid number
 
 
+        let whereClause = {};
+        if (search) whereClause.name_en = { [Op.like]: `%${search}%` };
+        if (foodpreference) whereClause.foodpreference = foodpreference;
+        if (tags) whereClause.tags_en = { [Op.like]: `%${tags}%` };
 
-// Define an endpoint to retrieve a single recipe by its ID.
-router.get('/:recipeId', async(req, res) => {
-    try {
-        // Fetch the recipe using its ID from the route parameters.
-        const recipe = await Recipe.findById(req.params.recipeId);
-        if (!recipe) {
-            // If the recipe is not found, return a 404 status code.
-            return res.status(404).json({ message: 'Recipe not found' });
-        }
-        // Return the retrieved recipe.
-        res.json(recipe);
+        let orderClause = [];
+        if (sortField && sortDirection) orderClause.push([sortField, sortDirection]);
+
+        const recipes = await Recipe.findAll({ 
+            where: whereClause, 
+            order: orderClause, 
+            limit: finalLimit,
+            offset: finalOffset
+        });
+                
+        res.status(200).json(recipes);
     } catch (error) {
-        // In case of any error, return a 500 status code with the error message.
-        res.status(500).json({ message: error.message });
+        console.error("Error while fetching recipes:", error);
+        res.status(500).json({ message: "Error fetching recipes.", error: error.message });
     }
 });
 
-// Define an endpoint to add a new recipe.
+router.get('/available-preferences', (req, res) => {
+    const availablePreferences = ["vegan", "vegetarian", "pescatarian", "regular"];
+    res.status(200).json(availablePreferences);
+});
+
+
+// Add a new recipe
 router.post('/', async(req, res) => {
     try {
-        // Create a new instance of the Recipe model with the request body.
-        const newRecipe = new Recipe(req.body);
-        // Save the new recipe to the database.
-        const savedRecipe = await newRecipe.save();
-        // Return the saved recipe.
-        res.json(savedRecipe);
+        // Check and adjust the 'total_calories' field if it's an empty string
+        if(req.body.total_calories === '') {
+            req.body.total_calories = null; // or 0, depending on what's acceptable in your DB schema
+        }
+
+        // Continue with creating the new recipe
+        const newRecipe = await Recipe.create(req.body);
+        res.status(201).json(newRecipe);
     } catch (error) {
-        // If there's an error (like validation failure), return a 400 status code with the error message.
-        res.status(400).json({ message: error.message });
+        console.error("Error details: ", error); // Log the entire error object
+        res.status(500).json({ message: "Error adding recipe.", error: error.message });
     }
 });
 
-// Define an endpoint to update an existing recipe by its ID.
+
+// Fetch a specific recipe by its ID
+router.get('/:recipeId', async(req, res) => {
+    try {
+        const recipe = await Recipe.findByPk(req.params.recipeId);
+        if (!recipe) return res.status(404).json({ message: "Recipe not found." });
+        res.status(200).json(recipe);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching recipe.", error: error.message });
+    }
+});
+
+// Update a specific recipe by its ID
 router.put('/:recipeId', async(req, res) => {
     try {
-        // Update the recipe in the database using its ID and the request body.
-        // The `{ new: true }` option returns the updated recipe.
-        const updatedRecipe = await Recipe.findByIdAndUpdate(req.params.recipeId, req.body, { new: true });
-        if (!updatedRecipe) {
-            // If the recipe is not found, return a 404 status code.
-            return res.status(404).json({ message: 'Recipe not found' });
-        }
-        // Return the updated recipe.
-        res.json(updatedRecipe);
+        const updatedRows = await Recipe.update(req.body, { where: { id: req.params.recipeId } });
+        if (updatedRows[0] === 0) return res.status(404).json({ message: "Recipe not found." });
+        res.status(200).json({ message: "Recipe updated successfully." });
     } catch (error) {
-        // In case of any error, return a 500 status code with the error message.
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ message: "Error updating recipe.", error: error.message });
     }
 });
 
-// Define an endpoint to delete a recipe by its ID.
+// Delete a specific recipe by its ID
 router.delete('/:recipeId', async(req, res) => {
     try {
-        // Delete the recipe from the database using its ID.
-        const deletedRecipe = await Recipe.findByIdAndDelete(req.params.recipeId);
-        if (!deletedRecipe) {
-            // If the recipe is not found, return a 404 status code.
-            return res.status(404).json({ message: 'Recipe not found' });
-        }
-        // Confirm the deletion with a success message.
-        res.json({ message: 'Recipe deleted successfully' });
+        const deletedRows = await Recipe.destroy({ where: { id: req.params.recipeId } });
+        if (deletedRows === 0) return res.status(404).json({ message: "Recipe not found." });
+        res.status(200).json({ message: "Recipe deleted successfully." });
     } catch (error) {
-        // In case of any error, return a 500 status code with the error message.
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ message: "Error deleting recipe.", error: error.message });
     }
 });
-
-// Define an endpoint to retrieve distinct recipe categories based on the foodPreference.
-router.get('/categories', async(req, res) => {
+// Fetch unique food preferences (tags) from the raw_recipes table
+router.get('/preferences', async(req, res) => {
     try {
-        // Extract the foodPreference from the query parameters.
-        const foodPreference = req.query.foodPreference;
-        // Fetch distinct recipe types/categories based on the provided foodPreference.
-        const distinctCategories = await Recipe.distinct("recipeType", { foodPreference: foodPreference });
-        // Return the list of distinct categories.
-        res.json(distinctCategories);
-    } catch (err) {
-        // In case of any error, return a 500 status code with the error message.
-        res.status(500).json({ message: err.message });
+        const tags_en = await Recipe.findAll({
+            attributes: ['tags_en'],
+            group: ['tags_en']
+        });
+
+        const uniqueTags = [...new Set(tags_en.map(item => item.tags_en))];
+        res.status(200).json(uniqueTags);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching food preferences.", error: error.message });
     }
 });
 
-// Export the configured router to be used in other parts of the application.
+// For now, using tags_en as categories since no separate category column was provided in the schema.
+router.get('/categories/:preference', async(req, res) => {
+    try {
+        const preference = req.params.preference;
+
+        const categories = await Recipe.findAll({
+            attributes: ['tags_en'],
+            where: {
+                tags_en: {
+                    [Op.like]: `%${preference}%`
+                }
+            },
+            group: ['tags_en']
+        });
+
+        const uniqueCategories = [...new Set(categories.map(item => item.tags_en))];
+        res.status(200).json(uniqueCategories);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching recipe categories.", error: error.message });
+    }
+});
+
 module.exports = router;
