@@ -1,31 +1,44 @@
 const express = require('express');
-const Recipe = require('../models/Recipe');
+const db = require('../models');
+const Recipe = db.Recipe;
 const { Op } = require('sequelize');
-
 const router = express.Router();
 
 // Fetch all recipes with optional filtering, sorting, and pagination
 router.get('/', async(req, res) => {
     
     try {
+        const validSortFields = ['name_en', 'total_calories', 'updated_at'];
+        const validSortDirections = ['ASC', 'DESC'];
         const { search, limit, offset, sortField, sortDirection, foodpreference, tags } = req.query;
 
-    // Parse limit and offset to integers
-    const parsedLimit = parseInt(limit, 10);
-    const parsedOffset = parseInt(offset, 10);
+        // Parse limit and offset to integers
+        const parsedLimit = parseInt(limit, 10);
+        const parsedOffset = parseInt(offset, 10);
 
-    // Check if they are valid numbers, otherwise set default values
-    const finalLimit = isNaN(parsedLimit) ? 10 : parsedLimit;  // default to 10 if not a valid number
-    const finalOffset = isNaN(parsedOffset) ? 0 : parsedOffset;  // default to 0 if not a valid number
+        // Check if they are valid numbers, otherwise set default values
+        const finalLimit = isNaN(parsedLimit) ? 10 : parsedLimit;  // default to 10 if not a valid number
+        const finalOffset = isNaN(parsedOffset) ? 0 : parsedOffset;  // default to 0 if not a valid number
 
 
         let whereClause = {};
-        if (search) whereClause.name_en = { [Op.like]: `%${search}%` };
+        if (search) {
+            whereClause = {
+                [Op.or]: [
+                    { name_en: { [Op.like]: `%${search}%` } },
+                    { ingredients_en: { [Op.like]: `%${search}%` } },
+                    { id: search }
+                ]
+            };
+        }        
         if (foodpreference) whereClause.foodpreference = foodpreference;
         if (tags) whereClause.tags_en = { [Op.like]: `%${tags}%` };
 
-        let orderClause = [];
-        if (sortField && sortDirection) orderClause.push([sortField, sortDirection]);
+            // Existing code            
+            let orderClause = [];
+            if (sortField && validSortFields.includes(sortField) && sortDirection && validSortDirections.includes(sortDirection)) {
+                orderClause.push([sortField, sortDirection]);
+            }
 
         const recipes = await Recipe.findAll({ 
             where: whereClause, 
@@ -34,7 +47,14 @@ router.get('/', async(req, res) => {
             offset: finalOffset
         });
                 
-        res.status(200).json(recipes);
+         // Get the total count of recipes that fit the current query
+         const totalCount = await Recipe.count({ where: whereClause });
+
+         // Return both the paginated recipes and the total count
+         res.status(200).json({
+             recipes: recipes,
+             totalCount: totalCount
+         });
     } catch (error) {
         console.error("Error while fetching recipes:", error);
         res.status(500).json({ message: "Error fetching recipes.", error: error.message });
@@ -50,19 +70,19 @@ router.get('/available-preferences', (req, res) => {
 // Add a new recipe
 router.post('/', async(req, res) => {
     try {
-        // Check and adjust the 'total_calories' field if it's an empty string
-        if(req.body.total_calories === '') {
-            req.body.total_calories = null; // or 0, depending on what's acceptable in your DB schema
+        // Check and set the 'created_at' field if not provided
+        if(!req.body.created_at || req.body.created_at === '') {
+            req.body.created_at = new Date().toISOString();
         }
 
-        // Continue with creating the new recipe
-        const newRecipe = await Recipe.create(req.body);
-        res.status(201).json(newRecipe);
-    } catch (error) {
-        console.error("Error details: ", error); // Log the entire error object
-        res.status(500).json({ message: "Error adding recipe.", error: error.message });
-    }
-});
+          // Continue with creating the new recipe
+          const newRecipe = await Recipe.create(req.body);
+          res.status(201).json(newRecipe);
+      } catch (error) {
+          console.error("Error details: ", error); // Log the entire error object
+          res.status(500).json({ message: "Error adding recipe.", error: error.message });
+      }
+  });
 
 
 // Fetch a specific recipe by its ID

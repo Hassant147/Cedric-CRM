@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
+const db = require('./models');
+const Recipe = db.Recipe;
 const recipes = require('./routes/recipes'); // Ensure path to the recipes route file
-const Recipe = require('./models/Recipe'); // Import the Recipe model
 
 // Sequelize setup
 const { Sequelize } = require('sequelize');
@@ -14,8 +15,8 @@ sequelize.authenticate()
         console.log('Connection to the database has been established successfully.');
         
         // Synchronize the Recipe model with the database
-        Recipe.sync({ force: false })
-            .then(() => {
+        db.sequelize.sync({ force: false })
+        .then(() => {
                 console.log("raw_recipes table has been successfully created, if one doesn't exist");
             })
             .catch(error => {
