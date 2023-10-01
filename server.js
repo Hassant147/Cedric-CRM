@@ -43,7 +43,7 @@ app.get('/api/test', (req, res) => {
 app.use('/api/recipes', recipeRoutes);
 
 // Define the port number on which the Express server will listen.
-const PORT = 5001;
+const PORT = 5100;
 // Start the Express server and log a message indicating its running status and address.
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
