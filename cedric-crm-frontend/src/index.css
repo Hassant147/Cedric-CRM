@@ -1,0 +1,20 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+.shimmer-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .shimmer-row {
+    display: table-row;
+  }
+  
+  .shimmer-cell {
+    display: table-cell;
+    padding: 16px;
+    border-bottom: 1px solid #ccc;
+  }
+  
